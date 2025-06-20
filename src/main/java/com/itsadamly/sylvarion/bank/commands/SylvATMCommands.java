@@ -19,7 +19,6 @@ import io.papermc.paper.command.brigadier.argument.resolvers.selector.PlayerSele
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.command.CommandSender;
-import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 
@@ -68,54 +67,60 @@ public class SylvATMCommands {
         .then(Commands.literal("reload").executes(SylvATMCommands::handleReload))
 
         .then(Commands.literal("open")
-            .executes(ctx -> handleOpenAccount(ctx.getSource().getSender(), ctx.getSource().getExecutor()))
+            .executes(SylvATMCommands::handleOpenAccount)
             .then(Commands.argument("player", ArgumentTypes.player())
-                .requires(src -> src.getSender().hasPermission("sylv.atm.admin"))
-                .executes(ctx -> handleOpenAccount(
-                    ctx.getSource().getSender(),
-                    ctx.getArgument("player", PlayerSelectorArgumentResolver.class).resolve(ctx.getSource()).get(0)
-                ))))
+                //.requires(src -> src.getSender().hasPermission("sylv.atm.admin"))
+                .executes(SylvATMCommands::handleOpenAccount)))
 
         .then(Commands.literal("close")
-            .executes(SylvATMCommands::handleCloseAccount) // case if the sender is a player
+            .executes(SylvATMCommands::handleCloseAccount)
             .then(Commands.argument("player", SylvATMCmdDBArgs.playerInDB(connection)) //case if the sender is a console @ there is a target
-                .requires(src -> src.getSender().hasPermission("sylv.atm.admin"))
+                //.requires(src -> src.getSender().hasPermission("sylv.atm.admin"))
                 .executes(SylvATMCommands::handleCloseAccount)))
 
         .then(Commands.literal("getcard")
             .requires(src -> (src.getSender() instanceof Player))
+            //.requires(src -> src.getSender().hasPermission("sylv.atm.admin"))
             .executes(SylvATMCommands::handleGetCard)
             .then(Commands.argument("player", SylvATMCmdDBArgs.playerInDB(connection))
-                .requires(src -> src.getSender().hasPermission("sylv.atm.admin"))
                 .executes(SylvATMCommands::handleGetCard)))
 
         .then(Commands.literal("checkbalance")
+             // .requires(src -> src.getSender().hasPermission("sylv.atm.admin")) // only admins can check via command
             .executes(SylvATMCommands::handleCheckBalance)
             .then(Commands.argument("player", SylvATMCmdDBArgs.playerInDB(connection))
-                .requires(src -> src.getSender().hasPermission("sylv.atm.admin"))
+                //.requires(src -> src.getSender().hasPermission("sylv.atm.admin"))
                 .executes(SylvATMCommands::handleCheckBalance)))
 
         .then(Commands.literal("updatebalance")
-            .requires(src -> src.getSender().hasPermission("sylv.atm.admin"))
+            //.requires(src -> src.getSender().hasPermission("sylv.atm.admin"))
             .then(updateBalanceSubcommand))
 
         .then(Commands.literal("deposit")
-                .requires(src -> (src.getSender().hasPermission("sylv.atm.admin")))
+                //.requires(src -> (src.getSender().hasPermission("sylv.atm.admin")))
             .then(Commands.argument("amount", DoubleArgumentType.doubleArg(0))
-                .requires(src -> (src.getSender() instanceof Player))
+                //.requires(src -> (src.getSender() instanceof Player))
                 .executes(ctx -> handleDepositWithdraw(ctx, "deposit")))
             .then(Commands.argument("player", SylvATMCmdDBArgs.playerInDB(connection))
                 .then(Commands.argument("amount", DoubleArgumentType.doubleArg(0))
                     .executes(ctx -> handleDepositWithdraw(ctx, "deposit")))))
 
         .then(Commands.literal("withdraw")
-                .requires(src -> (src.getSender().hasPermission("sylv.atm.admin")))
+                //.requires(src -> (src.getSender().hasPermission("sylv.atm.admin")))
             .then(Commands.argument("amount", DoubleArgumentType.doubleArg(0))
-                .requires(src -> (src.getSender() instanceof Player))
+                //.requires(src -> (src.getSender() instanceof Player))
                 .executes(ctx -> handleDepositWithdraw(ctx, "withdraw")))
             .then(Commands.argument("player", SylvATMCmdDBArgs.playerInDB(connection))
                 .then(Commands.argument("amount", DoubleArgumentType.doubleArg(0))
                     .executes(ctx -> handleDepositWithdraw(ctx, "withdraw")))))
+
+        .then(Commands.literal("transfer")
+                //.requires(src -> (src.getSender().hasPermission("sylv.atm.admin")))
+            .then(Commands.argument("amount",  DoubleArgumentType.doubleArg(0))
+            .then(Commands.argument("from", SylvATMCmdDBArgs.playerInDB(connection))
+                .then(Commands.argument("to", SylvATMCmdDBArgs.playerInDB(connection))
+                    .executes(SylvATMCommands::handleTransfer)))))
+
         .build();
 
     private static int handleReload(CommandContext<CommandSourceStack> ctx) {
@@ -124,19 +129,31 @@ public class SylvATMCommands {
         return Command.SINGLE_SUCCESS;
     }
 
-    private static int handleNewConnection (CommandContext<CommandSourceStack> ctx) {
+    private static int handleNewConnection(CommandContext<CommandSourceStack> ctx) {
         // TODO debug purposes
         return 0;
     }
 
-    private static int handleOpenAccount (CommandSender sender, Entity executor) {
-        //TODO reformat
-        if (!(executor instanceof Player)) {
-            sender.sendMessage(MM.deserialize("<red>You are a console. Shut up."));
-            return 0;
-        }
-        Player player = (Player) executor;
+    private static int handleOpenAccount(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        CommandSender sender = ctx.getSource().getSender();
+        Player player;
         try {
+            try {
+                player = ctx.getArgument("player", PlayerSelectorArgumentResolver.class).resolve(ctx.getSource()).get(0);
+            } catch (IllegalArgumentException e) {
+                // if the argument is not provided and is a console
+                if (!(sender instanceof Player)) {
+                    sender.sendMessage(MM.deserialize("<red>Please provide a player's name."));
+                    return 0;
+                }
+                // if the sender is a player and no argument is provided, use the sender's name instead
+                if (new SylvBankDBTasks(connection).isUserInDB(sender.getName())) {
+                    sender.sendMessage(MM.deserialize("<red>You already have an account."));
+                    return 0;
+                }
+                player = (Player) sender;
+            }
+
             new SylvATMOperations(connection).openAccount(sender, player);
             return Command.SINGLE_SUCCESS;
         } catch (SQLException error) {
@@ -170,7 +187,7 @@ public class SylvATMCommands {
             new SylvATMOperations(connection).closeAccount(sender, playerName);
             return Command.SINGLE_SUCCESS;
         } catch (SQLException error) {
-            sender.sendMessage(MM.deserialize("<red>Cannot create user. Check console for details."));
+            sender.sendMessage(MM.deserialize("<red>Cannot close user account. Check console for details."));
             pluginInstance.getLogger().log(Level.WARNING, error.getMessage());
             for (StackTraceElement element : error.getStackTrace())
                 pluginInstance.getLogger().log(Level.WARNING, element.toString());
@@ -212,7 +229,7 @@ public class SylvATMCommands {
             }
             return Command.SINGLE_SUCCESS;
         } catch (SQLException error) {
-            sender.sendMessage(MM.deserialize("<red>Cannot create user. Check console for details."));
+            sender.sendMessage(MM.deserialize("<red>Cannot retrieve player's card. Check console for details."));
             pluginInstance.getLogger().log(Level.WARNING, error.getMessage());
             for (StackTraceElement element : error.getStackTrace())
                 pluginInstance.getLogger().log(Level.WARNING, element.toString());
@@ -220,8 +237,7 @@ public class SylvATMCommands {
         }
     }
 
-    private static int handleCheckBalance(CommandContext<CommandSourceStack> ctx) throws IllegalArgumentException
-    {
+    private static int handleCheckBalance(CommandContext<CommandSourceStack> ctx) throws IllegalArgumentException {
         CommandSender sender = ctx.getSource().getSender();
         String playerName;
 
@@ -261,7 +277,7 @@ public class SylvATMCommands {
         }
     }
 
-    private static int handleUpdateBalance (CommandContext<CommandSourceStack> ctx, String type) throws CommandSyntaxException {
+    private static int handleUpdateBalance(CommandContext<CommandSourceStack> ctx, String type) throws CommandSyntaxException {
         if (!(List.of("add", "remove", "set").contains(type)))
             throw new IllegalArgumentException(String.format("Type should be either \"add\", \"remove\" or \"set\", found %s", type));
 
@@ -305,12 +321,27 @@ public class SylvATMCommands {
                         "<green>'s balance to <yellow>" + CURRENCY + " " + String.format("%.2f", amount)));
             return Command.SINGLE_SUCCESS;
         } catch (SQLException error) {
-            sender.sendMessage(MM.deserialize("<red>Cannot create user. Check console for details."));
+            sender.sendMessage(MM.deserialize("<red>Cannot update user balance. Check console for details."));
             pluginInstance.getLogger().log(Level.WARNING, error.getMessage());
             for (StackTraceElement element : error.getStackTrace())
                 pluginInstance.getLogger().log(Level.WARNING, element.toString());
             return 0;
         }
+    }
+
+    private static int handleTransfer(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        CommandSender sender = ctx.getSource().getSender();
+        String fromPlayer, toPlayer;
+        double amount = DoubleArgumentType.getDouble(ctx, "amount");
+        try {
+            fromPlayer = ctx.getArgument("from", String.class);
+            toPlayer = ctx.getArgument("to", String.class);
+        } catch (IllegalArgumentException e) {
+            sender.sendMessage(MM.deserialize("<red>Please provide both 'from' and 'to' players."));
+            return 0;
+        }
+        new SylvATMOperations(connection).transfer(sender, fromPlayer, toPlayer, amount);
+        return Command.SINGLE_SUCCESS;
     }
 
     private static int handleDepositWithdraw(CommandContext<CommandSourceStack> ctx, String operation) throws CommandSyntaxException {

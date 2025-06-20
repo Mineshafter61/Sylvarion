@@ -31,9 +31,8 @@ public class SylvATMOperations {
      * Inserts an account to SQL (for command use)
      * @param sender Command sender
      * @param targetPlayer Command executor (the one who opens the account)
-     * @throws SQLException if SQL error occurs
      */
-    public void openAccount(CommandSender sender, Player targetPlayer) throws SQLException {
+    public void openAccount(CommandSender sender, Player targetPlayer) {
         try {
             boolean isUserExist = new SylvBankDBTasks(connection).isUserInDB(targetPlayer.getName());
 
@@ -60,6 +59,9 @@ public class SylvATMOperations {
             targetPlayer.getInventory().addItem(card);
         } catch (NullPointerException error) {
             sender.sendMessage(MM.deserialize("<red>Player not found."));
+        } catch (SQLException error) {
+            sender.sendMessage(MM.deserialize("<red>Cannot create user. Check console for details."));
+            pluginInstance.getLogger().log(Level.WARNING, error.getMessage());
         }
     }
 
@@ -67,9 +69,8 @@ public class SylvATMOperations {
      * Removes account entry in SQL (for command use)
      * @param commandSender - Command sender
      * @param targetName - Command executor
-     * @throws SQLException if SQL error orrurs
      */
-    public void closeAccount(CommandSender commandSender, String targetName) throws SQLException {
+    public void closeAccount(CommandSender commandSender, String targetName) {
         try {
             boolean isUserExist = new SylvBankDBTasks(connection).isUserInDB(targetName);
 
@@ -85,7 +86,7 @@ public class SylvATMOperations {
             new SylvBankDBTasks(connection).deleteUser(targetName);
 
             if (commandSender.getName().equalsIgnoreCase(targetName)) {
-                commandSender.sendMessage(MM.deserialize("<green>Your account has successfully been deleted."));
+                commandSender.sendMessage(MM.deserialize("<green>Your account has successfully been closed."));
             } else {
                 commandSender.sendMessage(MM.deserialize("<green>Player's account has successfully been deleted."));
                 if (Bukkit.getPlayerExact(targetName) != null) {
@@ -105,9 +106,8 @@ public class SylvATMOperations {
      * @param targetName {@link String} - Command executor in string
      * @param amount double - Amount to deposit
      * @return boolean - success or not
-     * @throws SQLException if SQL error occurs
      */
-    public boolean deposit(CommandSender commandSender, String targetName, double amount) throws SQLException {
+    public boolean deposit(CommandSender commandSender, String targetName, double amount) {
         try {
             boolean isUserExist = new SylvBankDBTasks(connection).isUserInDB(targetName);
 
@@ -130,7 +130,7 @@ public class SylvATMOperations {
             new SylvBankDBTasks(connection).setCardBalance(targetName, "add", amount);
 
             Component message = MM.deserialize("<green>You have successfully deposited <gold>" +
-                    CURRENCY + " " + String.format("%.2f", amount) + "</gold> into ");
+                    CURRENCY + " " + String.format("%.2f", amount) + "</gold>into ");
 
             if (commandSender.getName().equalsIgnoreCase(targetName)) {
                 commandSender.sendMessage(message.append(MM.deserialize("your account.")));
@@ -153,9 +153,8 @@ public class SylvATMOperations {
      * @param toTargetName - Target to send the money to
      * @param amount - amount of money to withdraw
      * @return boolean - success or not
-     * @throws SQLException if SQL error occurs
      */
-    public boolean withdraw(CommandSender commandSender, String fromTargetName, String toTargetName, double amount) throws SQLException {
+    public boolean withdraw(CommandSender commandSender, String fromTargetName, String toTargetName, double amount) {
         try {
             boolean isUserExist = new SylvBankDBTasks(connection).isUserInDB(fromTargetName);
 
@@ -180,12 +179,12 @@ public class SylvATMOperations {
             new SylvBankDBTasks(connection).setCardBalance(fromTargetName, "subtract", amount);
 
             Component message = MM.deserialize("<green>You have successfully withdrawn <gold>" +
-                    CURRENCY + " " + String.format("%.2f", amount) + "</gold> from ");
+                    CURRENCY + " " + String.format("%.2f", amount) + "<green>from ");
 
             if (commandSender.getName().equalsIgnoreCase(fromTargetName)) {
                 commandSender.sendMessage(message.append(MM.deserialize("your account.")));
             } else {
-                commandSender.sendMessage(message.append(MM.deserialize("<green>" + fromTargetName + "</green>'s account.")));
+                commandSender.sendMessage(message.append(MM.deserialize(fromTargetName + "'s account.")));
             }
 
             return true;
@@ -193,6 +192,42 @@ public class SylvATMOperations {
             commandSender.sendMessage(MM.deserialize("<red>Cannot withdraw from user's account. Check console for details."));
             pluginInstance.getLogger().log(Level.WARNING, error.getMessage());
         }
+        return false;
+    }
+
+    public boolean transfer(CommandSender commandSender, String fromTargetName, String toTargetName, double amount) {
+        try {
+            double balance = new SylvBankDBTasks(connection).getCardBalance(fromTargetName);
+            if (balance < amount) {
+                if (fromTargetName.equalsIgnoreCase(commandSender.getName()))
+                    commandSender.sendMessage(MM.deserialize("<red>You have insufficient balance in your account to perform" +
+                            " account transfers."));
+                else
+                    commandSender.sendMessage(MM.deserialize("<red>This player has insufficient balance in their account " +
+                            "to perform account transfers."));
+
+                return false;
+            }
+            new SylvBankDBTasks(connection).setCardBalance(fromTargetName, "subtract", amount);
+            new SylvBankDBTasks(connection).setCardBalance(toTargetName, "add", amount);
+
+            if (fromTargetName.equalsIgnoreCase(commandSender.getName())) {
+                commandSender.sendMessage(MM.deserialize("<green>You have successfully transferred <yellow>" + CURRENCY +
+                        " " + String.format("%.2f", amount) +  " <green>to " + toTargetName + "'s account."));
+            } else if (toTargetName.equalsIgnoreCase(commandSender.getName())) {
+                commandSender.sendMessage(MM.deserialize("<green>You have received <yellow>" + CURRENCY +
+                        " " + String.format("%.2f", amount) +  " <green>from " + toTargetName + " via account transfer."));
+            } else {
+                commandSender.sendMessage(MM.deserialize("<green>Successfully transferred <yellow>" + CURRENCY +
+                        " " + String.format("%.2f", amount) +  " <green>from " + fromTargetName + "'s account to " + toTargetName + "'s account."));
+            }
+
+            return true;
+        } catch (SQLException error) {
+            commandSender.sendMessage("<red>Cannot perform bank transfers. Check console for details.");
+            pluginInstance.getLogger().log(Level.WARNING, error.getMessage());
+        }
+
         return false;
     }
 //
